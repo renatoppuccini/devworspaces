@@ -1,0 +1,106 @@
+schemaVersion: 2.1.0
+metadata:
+  name: liferay
+  namespace: opentlc-mgr-devspaces
+attributes:
+  .che/che-theia-plugins.yaml: |
+    - id: redhat/java11/latest
+      override:
+        sidecar: {}
+        preferences:
+          java.server.launchMode: Standard
+  .vscode/extensions.json: |-
+    {
+      "recommendations": [
+        "redhat/java11"
+      ]
+    }
+  .vscode/launch.json: |
+    {
+     "version": "0.2.0",
+     "configurations": [
+       {
+         "type": "java",
+         "name": "Debug (Attach) - Remote",
+         "request": "attach",
+         "hostName": "localhost",
+         "port": 8000
+       }]
+     }
+  metadata-name-field: generateName
+  metadata-name-original-value: liferay
+projects:
+  - git:
+      remotes:
+        origin: 'https://github.com/DaniellaFreese/liferay-blade-samples.git'
+    name: liferay-blade-samples
+components:
+  - attributes:
+      app.kubernetes.io/name: maven
+      che-theia.eclipse.org/vscode-extensions:
+        - 'http://plugin-registry.openshift-devspaces.svc:8080/resources/github_com/redhat-developer/devspaces-vscode-extensions/releases/download/7_44-che-assets/java-0.82.0-369.vsix'
+        - 'http://plugin-registry.openshift-devspaces.svc:8080/resources/github_com/redhat-developer/devspaces-vscode-extensions/releases/download/7_44-che-assets/vscode-java-debug-0.26.0.vsix'
+        - 'http://plugin-registry.openshift-devspaces.svc:8080/resources/open-vsx_org/api/vscjava/vscode-java-test/0_28_1/file/vscjava.vscode-java-test-0.28.1.vsix'
+      che-theia.eclipse.org/vscode-preferences:
+        java.server.launchMode: Standard
+    container:
+      args:
+        - sh
+        - '-c'
+        - '${PLUGIN_REMOTE_ENDPOINT_EXECUTABLE}'
+      endpoints:
+        - exposure: public
+          name: health-checks-endpoint
+          protocol: http
+          targetPort: 8080
+      env:
+        - name: JAVA_OPTS
+          value: '-XX:MaxRAMPercentage=50.0 -XX:+UseParallelGC -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=20 -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xms20m -Djava.security.egd=file:/dev/./urandom -Duser.home=/home/jboss'
+        - name: MAVEN_OPTS
+          value: $(JAVA_OPTS)
+        - name: PLUGIN_REMOTE_ENDPOINT_EXECUTABLE
+          value: /remote-endpoint/plugin-remote-endpoint
+        - name: THEIA_PLUGINS
+          value: 'local-dir:///plugins/sidecars/maven'
+        - name: CHE_DASHBOARD_URL
+          value: 'https://devspaces.apps.cluster-cchzj.cchzj.sandbox1772.opentlc.com'
+        - name: CHE_PLUGIN_REGISTRY_URL
+          value: 'https://devspaces.apps.cluster-cchzj.cchzj.sandbox1772.opentlc.com/plugin-registry/v3'
+        - name: CHE_PLUGIN_REGISTRY_INTERNAL_URL
+          value: 'http://plugin-registry.openshift-devspaces.svc:8080/v3'
+      image: 'registry.redhat.io/codeready-workspaces/plugin-java11-rhel8@sha256:d0337762e71fd4badabcb38a582b2f35e7e7fc1c9c0f2e841e339d45b7bd34ed'
+      memoryLimit: 512Mi
+      mountSources: true
+      sourceMapping: /projects
+      volumeMounts:
+        - name: m2
+          path: /home/jboss/.m2
+        - name: remote-endpoint
+          path: /remote-endpoint
+        - name: plugins
+          path: /plugins
+    name: maven
+  - name: liferay
+    openshift:
+      inlined: '{"mountSources":true,"referenceContent":"---\napiVersion: v1\nkind: List\nitems:\n-\n  apiVersion: apps/v1\n  kind: Deployment\n  metadata:\n    name: liferay\n    labels:\n      app: liferay\n  spec:\n    replicas: 1 \n    selector:\n      matchLabels:\n        app: liferay\n    strategy:\n      type: RollingUpdate \n    template:\n      metadata:\n        labels:\n          app: liferay\n      spec:\n        containers:\n        - env: \n          - name: LIFERAY_JAVA_OPTS \n            value: -Xms2g -Xmx2g\n          - name: LIFERAY_MODULE_PERIOD_FRAMEWORK_PERIOD_PROPERTIES_PERIOD_OSGI_PERIOD_CONSOLE\n            value: 0.0.0.0:11311\n          - name: LIFERAY_WEB_PERIOD_SERVER_PERIOD_DISPLAY_PERIOD_NODE \n            value: \"true\"\n          - name: LIFERAY_REDIRECT_PERIOD_URL_PERIOD_SECURITY_PERIOD_MODE \n            value: \"domain\"\n          - name: JAVA_VERSION\n            value: zulu11\n          image: image-registry.openshift-image-registry.svc:5000/liferay/liferay:latest\n          resources:\n            requests: \n              memory: \"2048Mi\"\n              cpu: \"2\"\n            limits: \n              memory: \"4098Mi\"\n              cpu: \"3\"\n          name: liferay \n          ports: \n          - containerPort: 11311\n          - containerPort: 8080\n          readinessProbe: \n            httpGet:\n              path: \"/c/portal/layout\"\n              port: 8080\n            initialDelaySeconds: 120\n            periodSeconds: 15\n            failureThreshold: 3\n            successThreshold: 3\n          livenessProbe:\n            tcpSocket:\n              port: 8080\n            initialDelaySeconds: 120\n            periodSeconds: 20\n            failureThreshold: 3\n            successThreshold: 1\n          volumeMounts:\n          - mountPath: /opt/liferay/data\n            name: liferay-data \n          - mountPath: /mnt/liferay\n            name: liferay-config \n        restartPolicy: Always \n        volumes: \n        - name: liferay-data\n          emptyDir: {}\n        - name: liferay-config\n          emptyDir: {}\n-\n  apiVersion: v1\n  kind: Service\n  metadata:\n    labels:\n      app: liferay\n    name: liferay-svc\n  spec:\n    ports:\n    - name: \"8080\"\n      port: 8080\n      protocol: TCP \n      targetPort: 8080\n    selector:\n      app: liferay\n- \n  apiVersion: route.openshift.io/v1\n  kind: Route\n  metadata:\n    name: liferay\n  spec:\n    to:\n      kind: Service\n      name: liferay-svc\n    port:\n      targetPort: 8080","type":"openshift","reference":"liferay.yaml","alias":"liferay"}'
+  - name: m2
+    volume: {}
+commands:
+  - exec:
+      commandLine: mvn clean install
+      component: maven
+      label: 1. Build
+      workingDir: '${PROJECTS_ROOT}/liferay-blade-samples/maven'
+    id: build
+  - exec:
+      commandLine: mvn test
+      component: maven
+      label: 2. Run tests
+      workingDir: '${PROJECTS_ROOT}/liferay-blade-samples/maven'
+    id: run-tests
+  - exec:
+      commandLine: cp *.jar /opt/liferay/deploy/
+      component: liferay
+      label: 3. Deploy Artifact to Lifery
+      workingDir: '${PROJECTS_ROOT}/liferay-blade-samples/maven/apps/jsp-portlet/target'
+    id: deploy-artifact-to-lifery
